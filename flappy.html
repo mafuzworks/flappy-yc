@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Flappy YC — Launch Run</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1a1a2e; overflow: hidden; touch-action: manipulation; }
+  body { display: flex; align-items: center; justify-content: center; font-family: -apple-system, system-ui, sans-serif; }
+  canvas { background: #f6f1e7; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.5); max-width: 100vw; max-height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c" width="400" height="640"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height, GROUND = H - 60;
+
+const GRAVITY = 0.42, FLAP = -7.4, SPEED = 2.6;
+const GAP = 165, WALL_W = 64, SPACING = 220;
+
+let state, rocket, walls, score, best = +localStorage.getItem('flappyYcBest') || 0, frame, particles, groundX;
+
+function reset() {
+  state = 'ready';
+  rocket = { x: 100, y: H / 2 - 40, vy: 0, r: 15 };
+  walls = []; particles = [];
+  score = 0; frame = 0; groundX = 0;
+}
+
+function addWall(x) {
+  const top = 80 + Math.random() * (GROUND - GAP - 160);
+  walls.push({ x, top, passed: false });
+}
+
+function flap() {
+  if (state === 'ready') { state = 'play'; addWall(W + 40); }
+  if (state === 'play') {
+    rocket.vy = FLAP;
+    for (let i = 0; i < 6; i++) particles.push({ x: rocket.x - 16, y: rocket.y + 4, vx: -1 - Math.random() * 2, vy: (Math.random() - .5) * 2, life: 25 });
+  } else if (state === 'over' && frame > 30) reset();
+}
+
+addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); flap(); } });
+cv.addEventListener('pointerdown', e => { e.preventDefault(); flap(); });
+
+function die() {
+  state = 'over'; frame = 0;
+  if (score > best) { best = score; localStorage.setItem('flappyYcBest', best); }
+}
+
+function update() {
+  frame++;
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+  particles = particles.filter(p => p.life > 0);
+  if (state === 'ready') { rocket.y = H / 2 - 40 + Math.sin(frame / 12) * 8; groundX = (groundX - SPEED) % 24; return; }
+  if (state === 'over') { if (rocket.y < GROUND - rocket.r) { rocket.vy += GRAVITY; rocket.y += rocket.vy; } return; }
+
+  groundX = (groundX - SPEED) % 24;
+  rocket.vy = Math.min(rocket.vy + GRAVITY, 10);
+  rocket.y += rocket.vy;
+  if (rocket.y < rocket.r) { rocket.y = rocket.r; rocket.vy = 0; }
+
+  walls.forEach(w => w.x -= SPEED);
+  if (walls[walls.length - 1].x < W - SPACING) addWall(W + 10);
+  walls = walls.filter(w => w.x > -WALL_W - 10);
+
+  for (const w of walls) {
+    if (!w.passed && w.x + WALL_W < rocket.x) { w.passed = true; score++; }
+    const r = rocket.r - 3;
+    if (rocket.x + r > w.x && rocket.x - r < w.x + WALL_W &&
+        (rocket.y - r < w.top || rocket.y + r > w.top + GAP)) return die();
+  }
+  if (rocket.y + rocket.r >= GROUND) { rocket.y = GROUND - rocket.r; die(); }
+}
+
+function drawWall(w) {
+  const g = ctx.createLinearGradient(w.x, 0, w.x + WALL_W, 0);
+  g.addColorStop(0, '#3d3d5c'); g.addColorStop(1, '#2a2a40');
+  ctx.fillStyle = g;
+  ctx.fillRect(w.x, 0, WALL_W, w.top);
+  ctx.fillRect(w.x, w.top + GAP, WALL_W, GROUND - w.top - GAP);
+  ctx.fillStyle = '#ff6600';
+  ctx.fillRect(w.x - 4, w.top - 14, WALL_W + 8, 14);
+  ctx.fillRect(w.x - 4, w.top + GAP, WALL_W + 8, 14);
+  // little windows, like office towers
+  ctx.fillStyle = 'rgba(255,220,150,.35)';
+  for (let y = 12; y < w.top - 24; y += 22) for (let x = 10; x < WALL_W - 10; x += 18) ctx.fillRect(w.x + x, y, 8, 10);
+  for (let y = w.top + GAP + 26; y < GROUND - 10; y += 22) for (let x = 10; x < WALL_W - 10; x += 18) ctx.fillRect(w.x + x, y, 8, 10);
+}
+
+function drawRocket() {
+  ctx.save();
+  ctx.translate(rocket.x, rocket.y);
+  ctx.rotate(Math.max(-0.5, Math.min(rocket.vy / 12, 1.1)));
+  // flame
+  if (state !== 'over') {
+    ctx.fillStyle = frame % 6 < 3 ? '#ffcc00' : '#ff8800';
+    ctx.beginPath(); ctx.moveTo(-14, -6); ctx.lineTo(-26 - Math.random() * 6, 0); ctx.lineTo(-14, 6); ctx.fill();
+  }
+  // fins
+  ctx.fillStyle = '#c94f00';
+  ctx.beginPath(); ctx.moveTo(-10, -8); ctx.lineTo(-18, -16); ctx.lineTo(-4, -8); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-10, 8); ctx.lineTo(-18, 16); ctx.lineTo(-4, 8); ctx.fill();
+  // body
+  ctx.fillStyle = '#ff6600';
+  ctx.beginPath(); ctx.ellipse(0, 0, 18, 10, 0, 0, Math.PI * 2); ctx.fill();
+  // window
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(5, 0, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a1a2e'; ctx.beginPath(); ctx.arc(6, 0, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function text(s, y, size, color = '#1a1a2e') {
+  ctx.font = `bold ${size}px -apple-system, system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 6; ctx.strokeStyle = '#f6f1e7'; ctx.strokeText(s, W / 2, y);
+  ctx.fillStyle = color; ctx.fillText(s, W / 2, y);
+}
+
+function draw() {
+  ctx.fillStyle = '#f6f1e7'; ctx.fillRect(0, 0, W, H);
+  // distant hills
+  ctx.fillStyle = '#ece3d0';
+  for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(((i * 110 + groundX * 0.3) % 660 + 660) % 660 - 60, GROUND, 80, Math.PI, 0); ctx.fill(); }
+
+  walls.forEach(drawWall);
+  particles.forEach(p => { ctx.fillStyle = `rgba(255,${120 + p.life * 4},0,${p.life / 25})`; ctx.fillRect(p.x, p.y, 4, 4); });
+  drawRocket();
+
+  // ground
+  ctx.fillStyle = '#2a2a40'; ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.fillStyle = '#ff6600';
+  for (let x = groundX; x < W; x += 24) ctx.fillRect(x, GROUND, 12, 6);
+
+  if (state === 'ready') {
+    text('FLAPPY YC', 150, 44, '#ff6600');
+    text('Tap / Space to launch', 200, 20);
+    text(`Best: ${best}`, 230, 18);
+  } else if (state === 'play') {
+    text(score, 80, 52);
+  } else {
+    text('Crashed!', 200, 44, '#ff6600');
+    text(`Score: ${score}   Best: ${best}`, 245, 22);
+    if (frame > 30) text('Tap to try again', 285, 18);
+  }
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+reset(); loop();
+</script>
+</body>
+</html>
